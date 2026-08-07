@@ -1,10 +1,19 @@
 /**
  * Developer Portfolio Application Logic
- * Fetches real GitHub repositories directly from GitHub API for user 'bitterbuick'
- * and renders interactive cards, detail modals, terminal, and particle canvas.
+ * Dynamically fetches live GitHub repositories for user 'bitterbuick'
+ * and excludes incomplete / empty skeleton repositories.
  */
 
-let allLiveProjects = PORTFOLIO_DATA.projects; // Default to pre-populated real repos
+const EXCLUDED_REPOS = [
+  'dashcam',
+  'google-calendar-mcp-server',
+  'google-mail-mcp-server',
+  'Web_Asstv0.02',
+  'scripts',
+  'portfolio' // Meta portfolio repo
+];
+
+let allLiveProjects = PORTFOLIO_DATA.projects;
 
 document.addEventListener('DOMContentLoaded', () => {
   initParticleCanvas();
@@ -27,48 +36,49 @@ document.addEventListener('DOMContentLoaded', () => {
 async function fetchGitHubRepos() {
   try {
     const res = await fetch('https://api.github.com/users/bitterbuick/repos?sort=updated&per_page=100');
-    if (!res.ok) return; // Fallback to PORTFOLIO_DATA.projects
+    if (!res.ok) return;
     const repos = await res.json();
 
     if (Array.isArray(repos) && repos.length > 0) {
-      allLiveProjects = repos
-        .filter(repo => !repo.fork && repo.name !== 'portfolio') // Filter out forks & portfolio repo if desired
-        .concat(repos.filter(repo => repo.fork))
-        .map(repo => {
-          const lang = repo.language || 'Code';
-          let category = 'dev-tools';
-          if (['Python', 'Jupyter Notebook'].includes(lang)) category = 'ai-ml';
-          else if (['HTML', 'CSS', 'JavaScript', 'TypeScript'].includes(lang)) category = 'full-stack';
-          else if (repo.fork) category = 'open-source';
+      // Filter out excluded incomplete repositories
+      const validRepos = repos.filter(repo => !EXCLUDED_REPOS.includes(repo.name));
 
-          return {
-            id: repo.name,
-            title: repo.name,
-            category: category,
-            featured: repo.stargazers_count > 0 || repo.description !== null,
-            tag: lang,
-            shortDesc: repo.description || `Public repository by bitterbuick. Primary language: ${lang}.`,
-            fullDesc: repo.description || `Public repository ${repo.full_name} hosted on GitHub. Created on ${new Date(repo.created_at).toLocaleDateString()}.`,
-            tech: [lang, repo.license ? repo.license.spdx_id || 'Open Source' : 'GitHub', repo.default_branch],
-            metrics: `⭐ ${repo.stargazers_count} Stars | 🍴 ${repo.forks_count} Forks | 🔄 Updated ${new Date(repo.updated_at).toLocaleDateString()}`,
-            gradient: "linear-gradient(135deg, rgba(0,242,254,0.2), rgba(112,0,255,0.2))",
-            borderColor: "#00f2fe",
-            githubUrl: repo.html_url,
-            liveUrl: repo.homepage || repo.html_url,
-            highlights: [
-              `Primary Language: ${lang}`,
-              `Open Issues: ${repo.open_issues_count}`,
-              `Pushed Date: ${new Date(repo.pushed_at).toLocaleDateString()}`
-            ]
-          };
-        });
+      allLiveProjects = validRepos.map(repo => {
+        const lang = repo.language || 'Python';
+        let category = 'dev-tools';
+        if (['Python', 'Jupyter Notebook'].includes(lang)) category = 'ai-ml';
+        else if (['HTML', 'CSS', 'JavaScript', 'TypeScript'].includes(lang)) category = 'full-stack';
+        else if (repo.fork) category = 'open-source';
 
-      // Update portfolio data store & re-render
-      PORTFOLIO_DATA.projects = allLiveProjects;
+        // Match local rich metadata if available
+        const localMatch = PORTFOLIO_DATA.projects.find(p => p.id === repo.name);
+
+        return {
+          id: repo.name,
+          title: localMatch ? localMatch.title : repo.name,
+          category: localMatch ? localMatch.category : category,
+          featured: repo.stargazers_count > 0 || repo.description !== null,
+          tag: localMatch ? localMatch.tag : lang,
+          shortDesc: localMatch ? localMatch.shortDesc : (repo.description || `Public repository by bitterbuick in ${lang}.`),
+          fullDesc: localMatch ? localMatch.fullDesc : (repo.description || `Public repository ${repo.full_name} hosted on GitHub. Created on ${new Date(repo.created_at).toLocaleDateString()}.`),
+          tech: localMatch ? localMatch.tech : [lang, repo.license ? repo.license.spdx_id || 'Open Source' : 'GitHub', repo.default_branch],
+          metrics: `⭐ ${repo.stargazers_count} Stars | 🍴 ${repo.forks_count} Forks | 🔄 Updated ${new Date(repo.updated_at).toLocaleDateString()}`,
+          gradient: "linear-gradient(135deg, rgba(0,242,254,0.2), rgba(112,0,255,0.2))",
+          borderColor: "#00f2fe",
+          githubUrl: repo.html_url,
+          liveUrl: repo.homepage || repo.html_url,
+          highlights: localMatch ? localMatch.highlights : [
+            `Primary Language: ${lang}`,
+            `Open Issues: ${repo.open_issues_count}`,
+            `Last Updated: ${new Date(repo.pushed_at).toLocaleDateString()}`
+          ]
+        };
+      });
+
       renderProjects('all');
     }
   } catch (err) {
-    console.log('Using offline GitHub data:', err);
+    console.log('Using pre-populated offline GitHub data:', err);
   }
 }
 
@@ -79,9 +89,7 @@ async function fetchGitHubUserData() {
     const user = await res.json();
 
     const publicRepoStat = document.getElementById('stat-public-repos');
-    const followersStat = document.getElementById('stat-followers');
-    if (publicRepoStat) publicRepoStat.textContent = user.public_repos + '+';
-    if (followersStat) followersStat.textContent = user.followers;
+    if (publicRepoStat) publicRepoStat.textContent = '10+ Active';
   } catch (e) {
     // Keep defaults
   }
@@ -202,7 +210,7 @@ function renderProjects(categoryFilter = 'all') {
       <div class="project-card-footer">
         <span class="project-metrics">${project.metrics}</span>
         <div style="display: flex; gap: 8px;">
-          <button class="icon-btn" onclick="openInteractiveDemo('${project.id}')" title="Run Interactive Demo / Test" style="color: var(--accent-cyan);">
+          <button class="icon-btn" onclick="openInteractiveDemo('${project.id}')" title="Run Interactive Test Demo" style="color: var(--accent-cyan);">
             ⚡
           </button>
           <button class="icon-btn" onclick="openProjectModal('${project.id}')" title="View Details">
@@ -265,7 +273,7 @@ function openProjectModal(projectId) {
 
     <div style="display: flex; gap: 16px; flex-wrap: wrap;">
       <button onclick="closeProjectModal(); openInteractiveDemo('${project.id}')" class="btn btn-primary">
-        ⚡ Launch Interactive Sandbox
+        ⚡ Launch Interactive Test Sandbox
       </button>
       <a href="${project.githubUrl}" target="_blank" rel="noopener" class="btn btn-secondary">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
