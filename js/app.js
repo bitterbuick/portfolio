@@ -1,19 +1,91 @@
 /**
  * Developer Portfolio Application Logic
- * Handles interactive project filters, modal drawers, dynamic terminal,
- * scroll effects, and ambient particle canvas animation.
+ * Fetches real GitHub repositories directly from GitHub API for user 'bitterbuick'
+ * and renders interactive cards, detail modals, terminal, and particle canvas.
  */
+
+let allLiveProjects = PORTFOLIO_DATA.projects; // Default to pre-populated real repos
 
 document.addEventListener('DOMContentLoaded', () => {
   initParticleCanvas();
   initHeaderScroll();
-  renderProjects('all');
   renderSkills();
   renderExperience();
   initFilterTabs();
   initModalListeners();
   initTerminal();
+
+  // Initial render using local real repos data
+  renderProjects('all');
+
+  // Dynamically fetch live repositories directly from GitHub API
+  fetchGitHubRepos();
+  fetchGitHubUserData();
 });
+
+/* --- Dynamic GitHub API Fetcher --- */
+async function fetchGitHubRepos() {
+  try {
+    const res = await fetch('https://api.github.com/users/bitterbuick/repos?sort=updated&per_page=100');
+    if (!res.ok) return; // Fallback to PORTFOLIO_DATA.projects
+    const repos = await res.json();
+
+    if (Array.isArray(repos) && repos.length > 0) {
+      allLiveProjects = repos
+        .filter(repo => !repo.fork && repo.name !== 'portfolio') // Filter out forks & portfolio repo if desired
+        .concat(repos.filter(repo => repo.fork))
+        .map(repo => {
+          const lang = repo.language || 'Code';
+          let category = 'dev-tools';
+          if (['Python', 'Jupyter Notebook'].includes(lang)) category = 'ai-ml';
+          else if (['HTML', 'CSS', 'JavaScript', 'TypeScript'].includes(lang)) category = 'full-stack';
+          else if (repo.fork) category = 'open-source';
+
+          return {
+            id: repo.name,
+            title: repo.name,
+            category: category,
+            featured: repo.stargazers_count > 0 || repo.description !== null,
+            tag: lang,
+            shortDesc: repo.description || `Public repository by bitterbuick. Primary language: ${lang}.`,
+            fullDesc: repo.description || `Public repository ${repo.full_name} hosted on GitHub. Created on ${new Date(repo.created_at).toLocaleDateString()}.`,
+            tech: [lang, repo.license ? repo.license.spdx_id || 'Open Source' : 'GitHub', repo.default_branch],
+            metrics: `⭐ ${repo.stargazers_count} Stars | 🍴 ${repo.forks_count} Forks | 🔄 Updated ${new Date(repo.updated_at).toLocaleDateString()}`,
+            gradient: "linear-gradient(135deg, rgba(0,242,254,0.2), rgba(112,0,255,0.2))",
+            borderColor: "#00f2fe",
+            githubUrl: repo.html_url,
+            liveUrl: repo.homepage || repo.html_url,
+            highlights: [
+              `Primary Language: ${lang}`,
+              `Open Issues: ${repo.open_issues_count}`,
+              `Pushed Date: ${new Date(repo.pushed_at).toLocaleDateString()}`
+            ]
+          };
+        });
+
+      // Update portfolio data store & re-render
+      PORTFOLIO_DATA.projects = allLiveProjects;
+      renderProjects('all');
+    }
+  } catch (err) {
+    console.log('Using offline GitHub data:', err);
+  }
+}
+
+async function fetchGitHubUserData() {
+  try {
+    const res = await fetch('https://api.github.com/users/bitterbuick');
+    if (!res.ok) return;
+    const user = await res.json();
+
+    const publicRepoStat = document.getElementById('stat-public-repos');
+    const followersStat = document.getElementById('stat-followers');
+    if (publicRepoStat) publicRepoStat.textContent = user.public_repos + '+';
+    if (followersStat) followersStat.textContent = user.followers;
+  } catch (e) {
+    // Keep defaults
+  }
+}
 
 /* --- Ambient Particle Background Canvas --- */
 function initParticleCanvas() {
@@ -47,7 +119,6 @@ function initParticleCanvas() {
   function draw() {
     ctx.clearRect(0, 0, width, height);
 
-    // Draw connecting lines between close particles
     for (let i = 0; i < particles.length; i++) {
       for (let j = i + 1; j < particles.length; j++) {
         const dx = particles[i].x - particles[j].x;
@@ -65,7 +136,6 @@ function initParticleCanvas() {
       }
     }
 
-    // Render particles
     particles.forEach(p => {
       p.x += p.vx;
       p.y += p.vy;
@@ -106,19 +176,26 @@ function renderProjects(categoryFilter = 'all') {
   const container = document.getElementById('projects-container');
   if (!container) return;
 
+  const projectsToDisplay = allLiveProjects.length > 0 ? allLiveProjects : PORTFOLIO_DATA.projects;
+
   const filtered = categoryFilter === 'all' 
-    ? PORTFOLIO_DATA.projects 
-    : PORTFOLIO_DATA.projects.filter(p => p.category === categoryFilter);
+    ? projectsToDisplay 
+    : projectsToDisplay.filter(p => p.category === categoryFilter);
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 40px;">No repositories found in this category.</div>`;
+    return;
+  }
 
   container.innerHTML = filtered.map(project => `
-    <div class="project-card" style="--card-border-color: ${project.borderColor}">
+    <div class="project-card" style="--card-border-color: ${project.borderColor || '#00f2fe'}">
       <div>
-        <span class="project-tag-badge">${project.tag}</span>
+        <span class="project-tag-badge">${project.tag || 'GitHub'}</span>
         <h3 class="project-card-title">${project.title}</h3>
         <p class="project-card-desc">${project.shortDesc}</p>
         
         <div class="tech-tag-list">
-          ${project.tech.map(t => `<span class="tech-tag">${t}</span>`).join('')}
+          ${(project.tech || []).map(t => `<span class="tech-tag">${t}</span>`).join('')}
         </div>
       </div>
 
@@ -157,28 +234,29 @@ function initFilterTabs() {
 
 /* --- Modal Detail View --- */
 function openProjectModal(projectId) {
-  const project = PORTFOLIO_DATA.projects.find(p => p.id === projectId);
+  const projectsToSearch = allLiveProjects.length > 0 ? allLiveProjects : PORTFOLIO_DATA.projects;
+  const project = projectsToSearch.find(p => p.id === projectId);
   if (!project) return;
 
   const modal = document.getElementById('project-modal');
   const modalBody = document.getElementById('modal-body-content');
 
   modalBody.innerHTML = `
-    <span class="project-tag-badge">${project.tag}</span>
+    <span class="project-tag-badge">${project.tag || 'GitHub Repo'}</span>
     <h2 style="font-size: 2rem; margin-bottom: 12px;">${project.title}</h2>
     <p style="color: var(--text-muted); font-size: 1.05rem; margin-bottom: 24px;">${project.fullDesc}</p>
     
     <div style="margin-bottom: 24px;">
-      <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;">Key Architectural Highlights</h4>
+      <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;">Repository Details</h4>
       <ul class="modal-highlights-list">
-        ${project.highlights.map(h => `<li>${h}</li>`).join('')}
+        ${(project.highlights || []).map(h => `<li>${h}</li>`).join('')}
       </ul>
     </div>
 
     <div style="margin-bottom: 30px;">
-      <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;">Technologies & Tools</h4>
+      <h4 style="font-size: 0.9rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;">Technologies & Licensing</h4>
       <div class="tech-tag-list">
-        ${project.tech.map(t => `<span class="tech-tag" style="padding: 6px 12px; font-size: 0.85rem;">${t}</span>`).join('')}
+        ${(project.tech || []).map(t => `<span class="tech-tag" style="padding: 6px 12px; font-size: 0.85rem;">${t}</span>`).join('')}
       </div>
     </div>
 
@@ -187,10 +265,11 @@ function openProjectModal(projectId) {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
         View GitHub Repository
       </a>
+      ${project.liveUrl && project.liveUrl !== project.githubUrl ? `
       <a href="${project.liveUrl}" target="_blank" rel="noopener" class="btn btn-secondary">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-        Live Interactive Demo
-      </a>
+        Live Homepage
+      </a>` : ''}
     </div>
   `;
 
